@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>time.html · SleepTime Iteration (60% width time)</title>
+<style>
+@font-face{ font-family:'Tiny5x3'; src:url('TINY5x3-140.otf') format('opentype'); }
+@font-face{ font-family:'Anthony'; src:url('Anthony.otf') format('opentype'); }
+
+html,body{height:100%;margin:0}
+body{font-family:Arial, Helvetica, sans-serif;background:transparent;position:relative;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0;background:url('background.png') center/cover no-repeat;opacity:.2;z-index:-1}
+
+/* 顶部时间：容器宽度恒为页面宽度的 3/5，居中；字号由 JS 自适应填满容器宽度 */
+.time-top{
+  position:fixed; top:12px; left:50%; transform:translateX(-50%);
+  width:60vw; text-align:center; white-space:nowrap;
+  z-index:60; user-select:none; pointer-events:none;
+}
+.time-top span{
+  display:inline-block;
+  font-family:'Tiny5x3', monospace;
+  color:rgba(18,157,175,0.6);
+  line-height:1;
+}
+
+/* 中心舞台与 steelyard */
+.stage{min-height:100vh; display:grid; place-items:center}
+.wrap{position:relative; width:560px; max-width:90vw; aspect-ratio:1/1}
+#steelyard{
+  position:absolute; inset:0; width:100%; height:100%; object-fit:contain;
+  transform-origin:50% 50%; pointer-events:none; z-index:70;
+}
+
+/* 随机物品层 & 物品 */
+.spawn-layer{position:fixed; inset:0; z-index:30; pointer-events:none}
+.item{position:absolute; pointer-events:auto; cursor:grab; user-select:none}
+.item img{display:block; width:100%; height:100%; object-fit:contain}
+
+/* 拖到 steelyard 后的小尺寸与提示框 */
+.dropped{position:absolute; width:64px!important; height:64px!important; z-index:71; cursor:grab}
+.dropped img{width:100%!important; height:100%!important; object-fit:contain}
+.tooltip{position:absolute; left:50%; bottom:100%; transform:translate(-50%,-10px); opacity:0; transition:opacity .15s; pointer-events:none}
+.dropped:hover .tooltip{opacity:1}
+.tip-frame{border-radius:39px; background:linear-gradient(145deg,#ffffff,#dedede); box-shadow:17px 17px 42px #bebebe,-17px -17px 42px #ffffff; padding:6px 10px}
+.tip-text{font-family:'Anthony', cursive; font-size:18px; white-space:nowrap}
+
+/* 新边框样式（全站共用），全透明底 */
+.broider{
+  border-image:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABUAAAAVCAYAAACpF6WWAAABB0lEQVR4AezSS07DYAwE4JCDsOBsHIuzseAioM/SIMt12kW3rTTyvOI/TXIe7ffz9fEbsMO3OXM6+F/qwvfP77eAVoruky/vHs2HWspQYHRsnnzzefbIT4RB4AH9COmauvbgdaeMQBDE22Y65sxvlvaCU7sOv/KTn05Sgph98id6Hp6OffVMBQTgvcDbkI5+cpxff5/JCKaOP+fsRdfSWX5Wv5YehzfWn+PUPet89qLrO1VkAO4tAn0FOeing/PqO0WAOcGfmB06HQfcffuKLpi48tO7WeqkIKVtpmPOvJ5pAncQzOKm0zXl9uB1pwhD0LF58s3n2SOvpQhDEND86D758u7RfPgDAAD//yXX2l4AAAAGSURBVAMAA9k+TW8n7G8AAAAASUVORK5CYII=") 7 / 7px / 0 round;
+  border-width:7px; border-style:solid; background:transparent;
+}
+
+/* 两个按钮：全透明底，字体一样大小 */
+.ctrl-btn{background:transparent; padding:10px 16px; font-weight:bold; cursor:pointer; font-size:16px}
+
+/* 右下 Sleep time（用于计算左下“＋”正方形边长） */
+.sleep-wrap{position:fixed; right:16px; bottom:16px; z-index:80}
+#sleepBtn{min-width:140px}
+
+/* Sleep 面板（全透明底；仅“：”；Set 小按钮） */
+.sleep-panel{
+  position:fixed; right:16px; bottom:76px; display:none; z-index:80;
+  background:transparent; padding:10px; width:220px; box-sizing:border-box
+}
+.sleep-row{display:flex; align-items:center; gap:6px; margin:6px 0}
+.sleep-row input{width:52px; padding:6px 4px; font-size:14px}
+.sleep-row .sep{padding:0 4px}
+.sleep-panel .set-btn{
+  width:auto; padding:6px 10px; cursor:pointer; display:block; margin:8px auto 0;
+  background:transparent;
+}
+
+/* 左下 “+” 按钮：正方形，边长=Sleep 按钮高度；全透明底；字体与 Sleep 相同，严格居中 */
+.add-wrap{position:fixed; left:16px; bottom:16px; z-index:80}
+.add-btn{
+  display:flex; align-items:center; justify-content:center;
+  background:transparent; cursor:pointer; border-radius:0;
+  font-weight:bold; line-height:1; font-size:16px;
+}
+.hidden-file{display:none}
+</style>
+</head>
+<body>
+
+<!-- 顶部“时间中点”：宽度恒为 60vw，字号由 JS 自动匹配到容器宽度 -->
+<div id="timeTop" class="time-top"><span id="timeStr">12:00</span></div>
+
+<main class="stage">
+  <div class="wrap" id="wrap">
+    <img id="steelyard" src="steelyard.png" alt="steelyard">
+  </div>
+</main>
+
+<div id="spawnLayer" class="spawn-layer"></div>
+
+<div class="sleep-wrap">
+  <button id="sleepBtn" class="ctrl-btn broider">Sleep time</button>
+</div>
+<div id="sleepPanel" class="sleep-panel broider">
+  <div class="sleep-row">
+    <input id="sH" type="number" min="0" max="23" placeholder="hh">
+    <span class="sep">:</span>
+    <input id="sM" type="number" min="0" max="59" placeholder="mm">
+  </div>
+  <div class="sleep-row">
+    <input id="eH" type="number" min="0" max="23" placeholder="hh">
+    <span class="sep">:</span>
+    <input id="eM" type="number" min="0" max="59" placeholder="mm">
+  </div>
+  <button id="setSleep" class="set-btn ctrl-btn broider">Set</button>
+</div>
+
+<div class="add-wrap">
+  <button id="addBtn" class="add-btn broider">+</button>
+  <input id="filePick" class="hidden-file" type="file" accept="image/*" multiple>
+</div>
+
+<script>
+var ITEM_FILES=[]; for(var i=1;i<=14;i++){ ITEM_FILES.push(i+'.png'); }
+var ITEM_WORDS=["nature","Hobby","Going out","manual","Attend class","Have a meal","music","Happy","Work","snack","play","dress up","friend","rest"];
+
+var wrap=document.getElementById('wrap');
+var steelyard=document.getElementById('steelyard');
+var spawnLayer=document.getElementById('spawnLayer');
+
+var sleepBtn=document.getElementById('sleepBtn');
+var sleepPanel=document.getElementById('sleepPanel');
+var sH=document.getElementById('sH'), sM=document.getElementById('sM');
+var eH=document.getElementById('eH'), eM=document.getElementById('eM');
+var setSleep=document.getElementById('setSleep');
+
+var addBtn=document.getElementById('addBtn');
+var filePick=document.getElementById('filePick');
+
+var timeTop=document.getElementById('timeTop');
+var timeStr=document.getElementById('timeStr');
+
+var uid=1;
+var bag=[];
+var midpoint=12*60;
+
+function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+function clamp(v,min,max){ if(v<min) return min; if(v>max) return max; return v; }
+function mod(a,m){ return ((a%m)+m)%m; }
+function hhmm(m){ var h=Math.floor(m/60), n=m%60; return (h<10?'0'+h:h)+':'+(n<10?'0'+n:n); }
+
+function tzMinutesNow(tz){
+  var f=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour12:false,hour:'2-digit',minute:'2-digit'});
+  var p=f.formatToParts(new Date());
+  var h=parseInt(p.find(x=>x.type==='hour').value,10);
+  var m=parseInt(p.find(x=>x.type==='minute').value,10);
+  return h*60+m;
+}
+function bjNow(){ return tzMinutesNow('Asia/Shanghai'); }
+
+/* 以“时间中点”为屏幕水平中线，右半圆映射 [-90°, +90°] */
+function angleFromMid(mid,cur){
+  var start=mod(mid-720,1440);
+  var diff=mod(cur-start,1440);
+  return -90 + (diff/1440)*180;
+}
+
+/* steelyard 跟随北京当前时间旋转；顶部时间中点不随时间自动改变 */
+function refresh(){
+  var cur=bjNow();
+  var ang=angleFromMid(midpoint,cur);
+  steelyard.style.transform='rotate('+ang+'deg)';
+}
+
+/* 自适应把 5 字符“HH:MM”撑满 60vw 宽度（随窗口变化而更新） */
+function fitTime(){
+  var desired=window.innerWidth*0.60;
+  timeStr.style.fontSize='10px';
+  var w=timeStr.offsetWidth;
+  if(w>0){
+    var size=Math.floor(10*desired/w);
+    timeStr.style.fontSize=size+'px';
+  }
+}
+
+/* 生成 1~14：洗牌 + of 循环；点击页面生成一张 */
+function refillBag(){ bag=shuffle([0,1,2,3,4,5,6,7,8,9,10,11,12,13]); }
+function spawnOne(){
+  if(bag.length===0) refillBag();
+  for(const _ of [0]){
+    var idx=bag.pop();
+    var box=document.createElement('div'); box.className='item'; box.id='itm-'+(uid++); box.dataset.idx=''+idx; box.dataset.label=ITEM_WORDS[idx];
+    var base=56+Math.random()*120, rot=Math.random()*50-25;
+    box.style.width=base+'px'; box.style.height=base+'px'; box.style.transform='rotate('+rot+'deg)';
+    var vw=Math.max(document.documentElement.clientWidth,320), vh=Math.max(document.documentElement.clientHeight,240);
+    var left=Math.random()*(vw-base), top=Math.random()*(vh-base);
+    box.style.left=left+'px'; box.style.top=top+'px';
+    var img=document.createElement('img'); img.src=ITEM_FILES[idx]; img.alt=ITEM_WORDS[idx]; img.draggable=false; box.appendChild(img);
+    box.draggable=true;
+    box.ondragstart=function(e){
+      var r=box.getBoundingClientRect(); var dx=e.clientX-r.left, dy=e.clientY-r.top;
+      e.dataTransfer.setData('text/plain', JSON.stringify({ id:box.id, dx:dx, dy:dy }));
+      e.dataTransfer.effectAllowed='move';
+    };
+    spawnLayer.appendChild(box);
+  }
+}
+
+/* 拖入 steelyard：只放置与提示框，不改变时间/旋转 */
+function pointerInSteelyard(x,y){ var r=steelyard.getBoundingClientRect(); return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom; }
+function attachToSteelyard(info,cx,cy){
+  var el=document.getElementById(info.id); if(!el) return;
+  var rWrap=wrap.getBoundingClientRect();
+  var x=cx - rWrap.left - info.dx;
+  var y=cy - rWrap.top  - info.dy;
+  var already=el.classList.contains('dropped');
+  if(!already){
+    el.style.width='64px'; el.style.height='64px'; el.style.transform='none';
+    el.classList.remove('item'); el.classList.add('dropped');
+    if(!el.querySelector('.tooltip')){
+      var tip=document.createElement('div'); tip.className='tooltip';
+      var frame=document.createElement('div'); frame.className='tip-frame';
+      var txt=document.createElement('div'); txt.className='tip-text';
+      txt.textContent=el.dataset.label||'custom';
+      frame.appendChild(txt); tip.appendChild(frame); el.appendChild(tip);
+    }
+    wrap.appendChild(el);
+    el.draggable=true;
+    el.ondragstart=function(e){
+      var r=el.getBoundingClientRect(); var dx=e.clientX-r.left, dy=e.clientY-r.top;
+      e.dataTransfer.setData('text/plain', JSON.stringify({ id:el.id, dx:dx, dy:dy }));
+      e.dataTransfer.effectAllowed='move';
+    };
+  }
+  var maxX=wrap.clientWidth-el.offsetWidth, maxY=wrap.clientHeight-el.offsetHeight;
+  if(x<0)x=0; if(y<0)y=0; if(x>maxX)x=maxX; if(y>maxY)y=maxY;
+  el.style.left=x+'px'; el.style.top=y+'px';
+}
+
+/* 点击页面：生成一张 1~14；避免点到控制区时也生成 */
+document.addEventListener('click',function(e){
+  if(e.target.closest('.sleep-wrap')||e.target.closest('#sleepPanel')||e.target.closest('.add-wrap')||e.target.closest('#wrap')) return;
+  spawnOne();
+});
+wrap.addEventListener('dragover',function(e){ if(!pointerInSteelyard(e.clientX,e.clientY)) return; e.preventDefault(); });
+wrap.addEventListener('drop',function(e){
+  if(!pointerInSteelyard(e.clientX,e.clientY)) return;
+  e.preventDefault();
+  try{ var info=JSON.parse(e.dataTransfer.getData('text/plain')||'{}'); attachToSteelyard(info,e.clientX,e.clientY); }catch(err){}
+});
+
+/* Sleep time：设置“时间中点” = 结束时间 + (24h - 睡眠时长)/2 */
+sleepBtn.onclick=function(e){
+  e.stopPropagation();
+  sleepPanel.style.display=(sleepPanel.style.display==='block')?'none':'block';
+};
+setSleep.onclick=function(){
+  var sh=Math.max(0,Math.min(23,parseInt(sH.value||'0',10)));
+  var sm=Math.max(0,Math.min(59,parseInt(sM.value||'0',10)));
+  var eh=Math.max(0,Math.min(23,parseInt(eH.value||'0',10)));
+  var em=Math.max(0,Math.min(59,parseInt(eM.value||'0',10)));
+  var start=sh*60+sm, end=eh*60+em;
+  var sleepDur=mod(end-start,1440);
+  var awake=1440 - sleepDur;
+  midpoint=mod(end + awake/2, 1440);
+  timeStr.textContent=hhmm(midpoint);
+  fitTime();
+  sleepPanel.style.display='none';
+  refresh();
+};
+
+/* 左下“＋”：尺寸=Sleep 按钮高度；字体与 Sleep 一样 */
+function sizeAddBtn(){
+  var h=sleepBtn.offsetHeight;
+  if(h>0){
+    addBtn.style.width=h+'px';
+    addBtn.style.height=h+'px';
+    addBtn.style.fontSize=getComputedStyle(sleepBtn).fontSize;
+  }
+}
+window.addEventListener('resize', function(){ sizeAddBtn(); fitTime(); });
+
+/* 选择本地图片 */
+addBtn.onclick=function(){ filePick.click(); };
+filePick.onchange=function(){
+  var files=Array.from(filePick.files||[]);
+  files.forEach(function(f){
+    var url=URL.createObjectURL(f);
+    var box=document.createElement('div'); box.className='item'; box.id='itm-'+(uid++); box.dataset.label=f.name||'custom';
+    var base=80+Math.random()*120, rot=Math.random()*60-30;
+    box.style.width=base+'px'; box.style.height=base+'px'; box.style.transform='rotate('+rot+'deg)';
+    var vw=Math.max(document.documentElement.clientWidth,320), vh=Math.max(document.documentElement.clientHeight,240);
+    var left=Math.random()*(vw-base), top=Math.random()*(vh-base);
+    box.style.left=left+'px'; box.style.top=top+'px';
+    var img=document.createElement('img'); img.src=url; img.alt=f.name||'custom'; img.draggable=false; box.appendChild(img);
+    box.draggable=true;
+    box.ondragstart=function(e){
+      var r=box.getBoundingClientRect(); var dx=e.clientX-r.left, dy=e.clientY-r.top;
+      e.dataTransfer.setData('text/plain', JSON.stringify({ id:box.id, dx:dx, dy:dy }));
+      e.dataTransfer.effectAllowed='move';
+    };
+    spawnLayer.appendChild(box);
+  });
+  filePick.value='';
+};
+
+function init(){
+  timeStr.textContent='12:00';
+  refillBag();
+  refresh();
+  setInterval(refresh, 20000);
+  sizeAddBtn();
+  fitTime();
+}
+init();
+</script>
+</body>
+</html>
